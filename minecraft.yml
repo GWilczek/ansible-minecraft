@@ -1,0 +1,101 @@
+---
+- hosts: minecraft
+  remote_user: ubuntu
+  become: yes
+
+  vars:
+    mc_version: 1.18.1
+    # mc_url: "https://s3.amazonaws.com/Minecraft.Download/versions/{{ mc_version }}/minecraft_server.{{ mc_version }}.jar"
+    # 1.18.1
+    # mc_url: "https://launcher.mojang.com/v1/objects/125e5adf40c659fd3bce3e66e67a16bb49ecc1b9/server.jar"
+    # 1.18
+    mc_url: "https://launcher.mojang.com/v1/objects/3cf24a8694aca6267883b17d934efacc5e44440d/server.jar"
+    user: minecraft
+    group: minecraft
+    mc_user_home: /opt/minecraft
+
+  tasks:
+
+  - name: Upgrade all packages to the latest version
+    apt:
+      update_cache: yes
+      name: "*"
+      state: latest
+  
+  - name: Install dependecies
+    apt:
+      state: present
+      name:
+        - default-jdk
+        - screen
+
+  - name: Stop iptables
+    ansible.builtin.service: 
+      name: iptables 
+      state: stopped
+
+  - name: Flush Iptables
+    ansible.builtin.iptables:
+      flush: yes
+
+  # - name: Allow Iptables port 25565 and 22
+  #   ansible.builtin.iptables:
+  #     chain: INPUT
+  #     protocol: tcp
+  #     destination_ports:
+  #       - "22"
+  #       - "25565"
+  #     jump: ACCEPT
+
+  - name: Add the user 'minecraft' 
+    ansible.builtin.user:
+      name: minecraft
+      comment: Minecraft User
+      create_home: True
+      home: "{{ mc_user_home }}"
+      shell: /bin/false
+
+  - name: Create Minecraft Server Directory
+    ansible.builtin.file:
+      path: "{{ mc_user_home }}/survival"
+      state: directory
+      owner: "{{ user }}"
+      group: "{{ group }}"
+
+  - name: Get Minecraft JAR Server file
+    get_url:
+      url: "{{ mc_url }}"
+      dest: /opt/minecraft/survival/minecraft_server.jar
+      force: True
+      owner: "{{ user }}"
+      group: "{{ group }}"
+    notify:
+      - Restart Minecraft
+
+  - name: Set Eula to True
+    ansible.builtin.copy:
+      src: eula.txt
+      dest: /opt/minecraft/survival
+      owner: "{{ user }}"
+      group: "{{ group }}"
+      mode: '0600'
+
+  - name: Create Systemd MC Service
+    ansible.builtin.copy:
+      src: minecraft@.service
+      dest: /etc/systemd/system
+      owner: "{{ user }}"
+      group: "{{ group }}"
+      mode: '0700'
+    notify:
+      - Restart Minecraft
+
+  - name: Start service minecraft, if not started
+    ansible.builtin.service:
+      name: minecraft@survival
+      state: started
+
+  handlers:
+      - name: Restart Minecraft
+        service: name=minecraft@survival state=restarted
+      
